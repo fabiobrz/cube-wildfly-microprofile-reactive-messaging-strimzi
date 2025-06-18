@@ -53,7 +53,7 @@ mvn clean install -DskipTests
 ## Run the example
 
 ```shell
-git git@github.com:fabiobrz/cube-wildfly-microprofile-reactive-messaging-strimzi.git
+git clone git@github.com:fabiobrz/cube-wildfly-microprofile-reactive-messaging-strimzi.git
 cd cube-wildfly-microprofile-reactive-messaging-strimzi
 mvn  clean verify -Dmaven.home=$(which mvn)
 ```
@@ -63,5 +63,10 @@ that the Arquillian Cube JKube integration would use by default.
 
 ## Notes
 
-This example is using https://raw.githubusercontent.com/strimzi/strimzi-kafka-operator/refs/heads/main/examples/kafka/kafka-ephemeral.yaml to create the Kafka CRs,
-rather than the original test definitions, which make Strinzi 0.46 (latest) throw reconciliation errors. 
+- JDK 21 is required to run the example.
+- https://raw.githubusercontent.com/strimzi/strimzi-kafka-operator/refs/heads/main/examples/kafka/kafka-ephemeral.yaml is used 
+ during the cluster environment setup in order to create the Kafka CRs, rather than the original test
+ definitions, which would make Strinzi 0.46 (latest) throw reconciliation errors.
+- [An `Ingress` resource](./src/main/resources/wildfly-app-ingress.yml) is created by Arquillian Cube 
+ before running the test, rather than relying on a port-forward approach, as 
+- [the original test is doing](https://github.com/wildfly-extras/wildfly-cloud-tests/blob/main/tests/microprofile/reactive-messaging/strimzi/src/test/java/org/wildfly/test/cloud/microprofile/reactive/messaging/strimzi/ReactiveMessagingWithStrimziIT.java).
