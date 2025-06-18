@@ -35,6 +35,7 @@ import jakarta.ws.rs.core.Response;
 
 /**
  * @author <a href="mailto:kabir.khan@jboss.com">Kabir Khan</a>
+ * @author <a href="mailto:fburzigo@redhat.com">Fabio Burzigotti</a>
  */
 @Path("")
 public class ReactiveMessagingWithStrimziEndpoint {

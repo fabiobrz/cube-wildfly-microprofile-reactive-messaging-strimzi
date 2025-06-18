@@ -47,19 +47,8 @@ import static org.junit.Assert.*;
 
 /**
  * @author <a href="mailto:kabir.khan@jboss.com">Kabir Khan</a>
+ * @author <a href="mailto:fburzigo@redhat.com">Fabio Burzigotti</a>
  */
-//@Tag(KUBERNETES)
-//@WildFlyKubernetesIntegrationTest(
-//        namespace = "kafka",
-//        kubernetesResources = {
-//                @KubernetesResource(definitionLocation = "https://strimzi.io/install/latest?namespace=kafka"),
-//                @KubernetesResource(
-//                        definitionLocation = "src/test/container/strimzi-cluster.yml",
-//                        additionalResourcesCreated = {
-//                                @Resource(type = ResourceType.DEPLOYMENT, name = "my-cluster-entity-operator")
-//                        }),
-//                @KubernetesResource(definitionLocation = "src/test/container/strimzi-topic.yml")
-//        })
 @KubernetesResource("classpath:wildfly-app-ingress.yml")
 @RunWith(Arquillian.class)
 public class ReactiveMessagingWithStrimziIT {
@@ -69,39 +58,46 @@ public class ReactiveMessagingWithStrimziIT {
 
     private String serviceUrl;
 
-    @Test
-    @InSequence(10)
-    public void validate_ingress() {
-        final String ingressName = "wildfly-app-ingress";
-        // An ingress has been added as well by Arquillian Cube, via the hello-world-ingress.yaml additional resource
-        final IngressList ingresses = kubernetesClient.network().v1().ingresses().list();
-        Assertions.assertThat(ingresses.getItems())
-                .hasSize(1)
-                .extracting(Ingress::getMetadata)
-                .extracting(ObjectMeta::getName)
-                .containsExactlyInAnyOrder(ingressName);
-        // validating the ingress
-        final Ingress ingress = ingresses.getItems().get(0);
-        assertNotNull(ingress);
-        assertNotNull(ingress.getSpec());
-        assertNotNull(ingress.getSpec().getRules());
-        assertFalse(ingress.getSpec().getRules().isEmpty());
-        Assertions.assertThat(ingress.getSpec().getRules()).hasSize(1);
-        assertNotNull(ingress.getStatus());
-        assertNotNull(ingress.getStatus().getLoadBalancer());
-        assertNotNull(ingress.getStatus().getLoadBalancer().getIngress());
-        // wait until one ingress is actually ready, 60 seconds at most currently works for CI...
-        Awaitility.await()
-                .atMost(60, TimeUnit.SECONDS)
-                .until(() -> kubernetesClient.network().v1().ingresses().withName(ingressName).get().getStatus().getLoadBalancer().getIngress().size() == 1);
-        final IngressLoadBalancerIngress ingressLoadBalancerIngress = kubernetesClient.network().v1().ingresses()
-                .withName(ingressName).get().getStatus().getLoadBalancer().getIngress().get(0);
-        assertNotNull(ingressLoadBalancerIngress);
-        final String ingressIp = ingressLoadBalancerIngress.getIp();
-        assertNotNull(ingressIp);
-        // and finally calling the WildFly app
-        serviceUrl = String.format("http://%s/hello", ingressIp);
-    }
+    /**
+     * Lazily initialize and return the URL of the {@link Ingress} which is created by Cube, based on the
+     * {@code @KubernetesResource("classpath:wildfly-app-ingress.yml")} class annotation.
+     *
+     * @return A string representation of the WildFly application {@link Ingress} URL.
+     */
+    private String getServiceUrl() {
+        if (serviceUrl == null) {
+            final String ingressName = "wildfly-app-ingress";
+            // An ingress has been added as well by Arquillian Cube, via the hello-world-ingress.yaml additional resource
+            final IngressList ingresses = kubernetesClient.network().v1().ingresses().list();
+            Assertions.assertThat(ingresses.getItems())
+                    .hasSize(1)
+                    .extracting(Ingress::getMetadata)
+                    .extracting(ObjectMeta::getName)
+                    .containsExactlyInAnyOrder(ingressName);
+            // validating the ingress
+            final Ingress ingress = ingresses.getItems().get(0);
+            assertNotNull(ingress);
+            assertNotNull(ingress.getSpec());
+            assertNotNull(ingress.getSpec().getRules());
+            assertFalse(ingress.getSpec().getRules().isEmpty());
+            Assertions.assertThat(ingress.getSpec().getRules()).hasSize(1);
+            assertNotNull(ingress.getStatus());
+            assertNotNull(ingress.getStatus().getLoadBalancer());
+            assertNotNull(ingress.getStatus().getLoadBalancer().getIngress());
+            // wait until one ingress is actually ready, 60 seconds at most currently works for CI...
+            Awaitility.await()
+                    .atMost(60, TimeUnit.SECONDS)
+                    .until(() -> kubernetesClient.network().v1().ingresses().withName(ingressName).get().getStatus().getLoadBalancer().getIngress().size() == 1);
+            final IngressLoadBalancerIngress ingressLoadBalancerIngress = kubernetesClient.network().v1().ingresses()
+                    .withName(ingressName).get().getStatus().getLoadBalancer().getIngress().get(0);
+            assertNotNull(ingressLoadBalancerIngress);
+            final String ingressIp = ingressLoadBalancerIngress.getIp();
+            assertNotNull(ingressIp);
+            // and finally calling the WildFly app
+            serviceUrl = String.format("http://%s", ingressIp);
+        }
+        return serviceUrl;
+   }
 
     @Test
     @InSequence(20)
@@ -150,14 +146,15 @@ public class ReactiveMessagingWithStrimziIT {
         assertArrayEquals(expected, list.toArray(new String[list.size()]));
     }
 
-    private List<String> getReceived() throws Exception {
-        Response r = RestAssured.get(serviceUrl);
+    private List<String> getReceived() {
+        Response r = RestAssured.get(getServiceUrl());
         assertEquals(200, r.getStatusCode());
         return r.as(List.class);
     }
 
-    private void postMessage(String s) throws Exception {
-        int status = RestAssured.given().header("Content-Type", MediaType.TEXT_PLAIN).post(serviceUrl).getStatusCode();
+    private void postMessage(String s) {
+        final String path = s.startsWith("/") ? s : "/" + s;
+        int status = RestAssured.given().header("Content-Type", MediaType.TEXT_PLAIN).post(getServiceUrl() + path).getStatusCode();
         assertEquals(200, status);
     }
 

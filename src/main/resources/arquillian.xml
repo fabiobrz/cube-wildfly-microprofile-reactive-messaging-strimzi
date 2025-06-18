@@ -5,8 +5,12 @@
     http://jboss.org/schema/arquillian/arquillian_1_0.xsd">
 
   <extension qualifier="kubernetes">
-    <property name="env.dependencies">https://strimzi.io/install/latest,file://./strimzi-resources.yml</property>
-    <!--<property name="env.config.resource.name">strimzi-resources.yml</property>-->
+    <!-- use an existing "kafka" namespace, since the Strimzi setup for Kubernetes suggests for us to set a namespace, see https://youtu.be/144O4YumfWk?si=kwuurEYrEk3JPUPe -->
+    <property name="namespace.use.existing">kafka</property>
+    <!-- let the cluster environment setup depend on the Strimzi setup for kubernetes, and on an ephemeral Kafka CRs definition -->
+    <property name="env.dependencies">https://strimzi.io/install/latest?namespace=kafka,https://raw.githubusercontent.com/strimzi/strimzi-kafka-operator/refs/heads/main/examples/kafka/kafka-ephemeral.yaml</property>
+    <!-- declare that the cluster environment setup must wait for a (Pod) resource which name contains "my-cluster-entity-operator", once the ephemeral Kafka CRs are created -->
+    <property name="wait.for.env.dependencies">https://raw.githubusercontent.com/strimzi/strimzi-kafka-operator/refs/heads/main/examples/kafka/kafka-ephemeral.yaml,my-cluster-entity-operator</property>
   </extension>
 
 </arquillian>
