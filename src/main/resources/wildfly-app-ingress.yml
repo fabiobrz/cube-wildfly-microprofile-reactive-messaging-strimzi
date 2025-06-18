@@ -1,0 +1,16 @@
+kind: Ingress
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: wildfly-app-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: wildfly-app-svc
+                port:
+                  number: 8080
