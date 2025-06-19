@@ -1,0 +1,198 @@
+name: Arquillian Cube e2e Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+
+jobs:
+  docker-it:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['11','17']
+    steps:
+      - name: Checkout arquillian-cube
+        uses: actions/checkout@v4
+      - name: Cache .m2 registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: docker-it-cache-e2e-${{ github.sha }}-${{ github.run_id }}
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+      - name: Maven pre-fetch dependencies ${{ matrix.java }}
+        run: |
+          ./mvnw clean install -q -U -DskipTests
+      - name: Build and run integration tests for Docker target (${{ matrix.java }})
+        run: |
+          ./mvnw verify -B -Dfailsafe.groups=org.arquillian.cube.docker.impl.requirement.RequiresDocker -Dcontainerless.skip.tests=true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docker-it-surefire-reports-jdk-${{ matrix.java }}
+          path: |
+            '${{ github.workspace }}/**/surefire-reports/*.*'
+            '${{ github.workspace }}/**/*.log'
+
+  k8s-it:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['11','17']
+    steps:
+      - name: Checkout arquillian-cube
+        uses: actions/checkout@v4
+      - name: Setup Minikube
+        uses: manusa/actions-setup-minikube@v2.14.0
+        with:
+          driver: docker
+          minikube version: 'v1.32.0'
+          kubernetes version: 'v1.30.0'
+          github token: ${{ secrets.GITHUB_TOKEN }}
+          start args: "--memory='4gb' --cpus='2'"
+      - name: Enable minikube registry
+        run: |
+          minikube addons enable registry
+          kubectl port-forward --namespace kube-system service/registry 5000:80 &
+          sleep 5
+          echo "Checking whether the local (Minikube based) registry is working:"
+          curl http://localhost:5000/v2/_catalog
+      - name: Setup Minikube ingress addon
+        run: |
+          minikube addons enable ingress
+      - name: Cache .m2 registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: k8s-it-cache-e2e-${{ github.sha }}-${{ github.run_id }}
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+      - name: Maven pre-fetch dependencies ${{ matrix.java }}
+        run: |
+          ./mvnw clean install -q -U -DskipTests
+      - name: Build and run integration tests for Kubernetes target (${{ matrix.java }})
+        run: |
+          ./mvnw verify -B -Djkube.docker.push.registry=localhost:5000 -Djkube.docker.pull.registry=localhost:5000 -Dfailsafe.groups=org.arquillian.cube.kubernetes.impl.requirement.RequiresKubernetes -Dcontainerless.skip.tests=true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: k8s-it-surefire-reports-jdk-${{ matrix.java }}
+          path: |
+            '${{ github.workspace }}/**/surefire-reports/*.*'
+            '${{ github.workspace }}/**/*.log'
+      - name: Stop minikube
+        run: |
+          minikube stop
+
+  openshift-it:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['11','17']
+        # There is some problem with latest version of crc configured with okd preset.
+        # It was not possible to run tests successfully on latest version of crc. See linked issue:
+        # https://github.com/crc-org/crc/issues/4382
+        okd: [ v4.14.0 ]
+        oc: [ 4.14.0 ]
+        crc: [ 2.32.0 ]
+    steps:
+      - name: Checkout arquillian-cube
+        uses: actions/checkout@v4
+      - name: Install the OpenShift client
+        run: |
+          wget https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${{ matrix.oc }}/openshift-client-linux.tar.gz
+          mkdir oc-4.14.0
+          tar -xvzf openshift-client-linux.tar.gz -C oc-4.14.0
+          sudo cp oc-4.14.0/oc /usr/local/bin/oc
+          oc version
+      - name: Install required virtualization software
+        run: |
+          sudo apt-get update
+          sudo apt install qemu-kvm libvirt-daemon libvirt-daemon-system
+          # This package may not be present depending on Ubuntu version
+          sudo apt install virtiofsd || true
+          sudo adduser $USER libvirt
+          sudo adduser $USER kvm
+          sudo usermod -a -G libvirt $USER
+      - name: Remove unwanted stuff to free up disk image
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+
+          sudo docker image prune --all --force
+
+          sudo swapoff -a
+          sudo rm -f /mnt/swapfile
+      - name: Download CRC
+        run: |
+          wget https://developers.redhat.com/content-gateway/file/pub/openshift-v4/clients/crc/${{ matrix.crc }}/crc-linux-amd64.tar.xz
+          tar -xJf crc-linux-amd64.tar.xz
+          sudo cp crc-linux-${{ matrix.crc }}-amd64/crc /usr/local/bin/crc
+      - name: Set the crc config
+        run: |
+          crc config set preset okd
+          crc config set network-mode user
+      - name: Setup CRC
+        run: sudo -su $USER crc setup
+      - name: Start CRC
+        run: |
+          sudo -su $USER crc start | tee crc-start.log
+      - name: Cache .m2 registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: openshift-it-cache-e2e-${{ github.sha }}-${{ github.run_id }}
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+      - name: Login as kubeadmin
+        run: |
+          set +e
+          export TEST_CLUSTER_URL=https://api.crc.testing:6443/
+          export SYSADMIN_USERNAME=kubeadmin
+          export SYSADMIN_PASSWORD_LINE=$(grep -o 'Password:.*-.*' crc-start.log)
+          export SYSADMIN_PASSWORD=$(echo ${SYSADMIN_PASSWORD_LINE:10})
+
+          echo "kubeadmin credentials: ${SYSADMIN_USERNAME}:${SYSADMIN_PASSWORD}"
+          
+          echo "Attempting oc login with kubeadmin multiple times..."
+          counter=0
+          until [[ "$(oc login --insecure-skip-tls-verify "${TEST_CLUSTER_URL}" -u "${SYSADMIN_USERNAME}" -p "${SYSADMIN_PASSWORD}")" =~ "Login successful" ]] || [[ counter++ -ge 80 ]]
+          do
+            sleep 5
+          done          
+          export SYSADMIN_TOKEN=$(oc whoami -t)
+          echo "kubeadmin token: ${SYSADMIN_TOKEN}"
+      - name: Maven pre-fetch dependencies ${{ matrix.java }}
+        run: |
+          ./mvnw clean install -q -U -DskipTests
+      - name: Build and run integration tests for OpenShift target (${{ matrix.java }})
+        run: |
+          ./mvnw verify -B  -Djkube.docker.push.registry=image-registry.openshift-image-registry.svc:5000 -Djkube.docker.pull.registry=image-registry.openshift-image-registry.svc:5000  -Dfailsafe.groups=org.arquillian.cube.openshift.impl.requirement.RequiresOpenshift -Dcontainerless.skip.tests=true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openshift-it-surefire-reports-jdk-${{ matrix.java }}
+          path: |
+            '${{ github.workspace }}/**/surefire-reports/*.*'
+            '${{ github.workspace }}/**/*.log'

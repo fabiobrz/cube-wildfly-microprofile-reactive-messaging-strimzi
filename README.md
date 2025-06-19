@@ -1,4 +1,4 @@
-# cube-wildfly-microprofile-reactive-messaging-strimzi
+# Testing a WildFly MicroProfile Reactive Messaging - Strimzi application with Arquillian Cube
 
 This is an equivalent of https://github.com/wildfly-extras/wildfly-cloud-tests/tree/main/tests/microprofile/reactive-messaging/strimzi - but done with Arquillian Cube
 
@@ -69,4 +69,4 @@ that the Arquillian Cube JKube integration would use by default.
  definitions, which would make Strinzi 0.46 (latest) throw reconciliation errors.
 - [An `Ingress` resource](./src/main/resources/wildfly-app-ingress.yml) is created by Arquillian Cube 
  before running the test, rather than relying on a port-forward approach, as 
-- [the original test is doing](https://github.com/wildfly-extras/wildfly-cloud-tests/blob/main/tests/microprofile/reactive-messaging/strimzi/src/test/java/org/wildfly/test/cloud/microprofile/reactive/messaging/strimzi/ReactiveMessagingWithStrimziIT.java).
+ [the original test is doing](https://github.com/wildfly-extras/wildfly-cloud-tests/blob/main/tests/microprofile/reactive-messaging/strimzi/src/test/java/org/wildfly/test/cloud/microprofile/reactive/messaging/strimzi/ReactiveMessagingWithStrimziIT.java).
